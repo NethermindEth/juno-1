@@ -26,6 +26,7 @@ const (
 	ContractNonceHistory
 	ContractClassHashHistory
 	ContractDeploymentHeight
+	L1UpdateKey // block number and state root on L1
 )
 
 // Key flattens a prefix and series of byte arrays into a single []byte.
