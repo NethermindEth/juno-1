@@ -12,6 +12,7 @@ import (
 	"github.com/NethermindEth/juno/db"
 	"github.com/NethermindEth/juno/db/pebble"
 	"github.com/NethermindEth/juno/jsonrpc"
+	"github.com/NethermindEth/juno/migration"
 	"github.com/NethermindEth/juno/pprof"
 	"github.com/NethermindEth/juno/rpc"
 	"github.com/NethermindEth/juno/service"
@@ -178,6 +179,11 @@ func (n *Node) Run(ctx context.Context) {
 			n.log.Errorw("Error while closing the DB", "err", closeErr)
 		}
 	}()
+
+	if err = migration.MigrateIfNeeded(n.db); err != nil {
+		n.log.Errorw("Error while migrating the DB", "err", err)
+		return
+	}
 
 	n.blockchain = blockchain.New(n.db, n.cfg.Network, n.log)
 
