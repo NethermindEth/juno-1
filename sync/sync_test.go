@@ -146,3 +146,26 @@ func TestSyncBlocks(t *testing.T) {
 		testBlockchain(t, bc)
 	})
 }
+
+func TestPending(t *testing.T) {
+	t.Parallel()
+
+	client, closeFn := feeder.NewTestClient(utils.MAINNET)
+	t.Cleanup(closeFn)
+	gw := adaptfeeder.New(client)
+
+	testDB := pebble.NewMemTest()
+	log := utils.NewNopZapLogger()
+	bc := blockchain.New(testDB, utils.MAINNET, log)
+	synchronizer := New(bc, gw, log)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+
+	require.NoError(t, synchronizer.Run(ctx))
+	cancel()
+
+	head, err := bc.HeadsHeader()
+	require.NoError(t, err)
+	pending, err := bc.Pending()
+	require.NoError(t, err)
+	assert.Equal(t, head.Hash, pending.Block.ParentHash)
+}

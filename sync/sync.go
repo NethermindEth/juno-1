@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"time"
 
 	"github.com/NethermindEth/juno/blockchain"
 	"github.com/NethermindEth/juno/core"
@@ -15,7 +16,11 @@ import (
 	"github.com/sourcegraph/conc/stream"
 )
 
-var _ service.Service = (*Synchronizer)(nil)
+var (
+	_ service.Service = (*Synchronizer)(nil)
+
+	defaultPendingPollInterval = 5 * time.Second
+)
 
 // Synchronizer manages a list of StarknetData to fetch the latest blockchain updates
 type Synchronizer struct {
@@ -176,7 +181,11 @@ func (s *Synchronizer) syncBlocks(syncCtx context.Context) {
 	}()
 
 	fetchers := stream.New().WithMaxGoroutines(runtime.NumCPU())
+	fetchersSem := make(chan struct{}, runtime.NumCPU())
 	verifiers := stream.New().WithMaxGoroutines(runtime.NumCPU())
+
+	pendingPollTicker := time.NewTicker(defaultPendingPollInterval)
+	pendingPollSem := make(chan struct{}, 1)
 
 	streamCtx, streamCancel := context.WithCancel(syncCtx)
 
@@ -192,18 +201,70 @@ func (s *Synchronizer) syncBlocks(syncCtx context.Context) {
 				streamCancel()
 				fetchers.Wait()
 				verifiers.Wait()
+				pendingPollTicker.Stop()
+				pendingPollSem <- struct{}{}
 				return
 			default:
 				streamCtx, streamCancel = context.WithCancel(syncCtx)
 				nextHeight = s.nextHeight()
 				s.log.Warnw("Rolling back sync process", "height", nextHeight)
 			}
-		default:
+		case <-pendingPollTicker.C:
+			select {
+			case pendingPollSem <- struct{}{}:
+				go func() {
+					if err := s.pollPending(syncCtx); err != nil {
+						s.log.Debugw("Error while trying to poll pending block", "err", err)
+					}
+					<-pendingPollSem
+				}()
+			default:
+				// poll already in-progress, ignore the tick
+			}
+		case fetchersSem <- struct{}{}:
 			curHeight, curStreamCtx, curCancel := nextHeight, streamCtx, streamCancel
 			fetchers.Go(func() stream.Callback {
-				return s.fetcherTask(curStreamCtx, curHeight, verifiers, curCancel)
+				cb := s.fetcherTask(curStreamCtx, curHeight, verifiers, curCancel)
+				<-fetchersSem
+				return cb
 			})
 			nextHeight++
 		}
 	}
+}
+
+func (s *Synchronizer) pollPending(ctx context.Context) error {
+	if s.HighestBlockHeader != nil {
+		head, err := s.Blockchain.HeadsHeader()
+		if err != nil {
+			return err
+		}
+
+		// not at the tip of the chain yet, no need to poll pending
+		if s.HighestBlockHeader.Number > head.Number {
+			return nil
+		}
+	}
+
+	pendingBlock, err := s.StarknetData.BlockPending(ctx)
+	if err != nil {
+		return err
+	}
+
+	pendingStateUpdate, err := s.StarknetData.StateUpdatePending(ctx)
+	if err != nil {
+		return err
+	}
+
+	newClasses, err := s.fetchUnknownClasses(ctx, pendingStateUpdate)
+	if err != nil {
+		return err
+	}
+
+	s.log.Debugw("Found pending block", "txns", pendingBlock.TransactionCount)
+	return s.Blockchain.StorePending(&blockchain.Pending{
+		Block:       pendingBlock,
+		StateUpdate: pendingStateUpdate,
+		NewClasses:  newClasses,
+	})
 }
