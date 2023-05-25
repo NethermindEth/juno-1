@@ -213,6 +213,23 @@ func (b *Blockchain) TransactionByHash(hash *felt.Felt) (core.Transaction, error
 	return transaction, b.database.View(func(txn db.Transaction) error {
 		var err error
 		transaction, err = transactionByHash(txn, hash)
+
+		// not found in the canonical blocks, try pending
+		if errors.Is(err, db.ErrKeyNotFound) {
+			var pending Pending
+			pending, err = pendingBlock(txn)
+			if err != nil {
+				return err
+			}
+
+			for _, t := range pending.Block.Transactions {
+				if hash.Equal(t.Hash()) {
+					transaction = t
+					return nil
+				}
+			}
+		}
+
 		return err
 	})
 }
@@ -227,6 +244,25 @@ func (b *Blockchain) Receipt(hash *felt.Felt) (*core.TransactionReceipt, *felt.F
 	return receipt, blockHash, blockNumber, b.database.View(func(txn db.Transaction) error {
 		var err error
 		receipt, blockHash, blockNumber, err = receiptByHash(txn, hash)
+
+		// not found in the canonical blocks, try pending
+		if errors.Is(err, db.ErrKeyNotFound) {
+			var pending Pending
+			pending, err = pendingBlock(txn)
+			if err != nil {
+				return err
+			}
+
+			for i, t := range pending.Block.Transactions {
+				if hash.Equal(t.Hash()) {
+					receipt = pending.Block.Receipts[i]
+					blockHash = nil
+					blockNumber = 0
+					return nil
+				}
+			}
+		}
+
 		return err
 	})
 }
