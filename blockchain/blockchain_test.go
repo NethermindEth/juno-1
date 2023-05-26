@@ -415,7 +415,15 @@ func TestEvents(t *testing.T) {
 		require.NoError(t, err)
 		s, err := gw.StateUpdate(context.Background(), uint64(i))
 		require.NoError(t, err)
-		require.NoError(t, chain.Store(b, s, nil))
+
+		if b.Number < 6 {
+			require.NoError(t, chain.Store(b, s, nil))
+		} else {
+			require.NoError(t, chain.StorePending(&blockchain.Pending{
+				Block:       b,
+				StateUpdate: s,
+			}))
+		}
 	}
 
 	t.Run("filter non-existent", func(t *testing.T) {
@@ -423,7 +431,7 @@ func TestEvents(t *testing.T) {
 
 		t.Run("block number", func(t *testing.T) {
 			err = filter.SetRangeEndBlockByNumber(blockchain.EventFilterTo, uint64(44))
-			require.Error(t, err)
+			require.NoError(t, err)
 			err = filter.SetRangeEndBlockByNumber(blockchain.EventFilterFrom, uint64(44))
 			require.Error(t, err)
 		})
@@ -486,8 +494,7 @@ func TestEvents(t *testing.T) {
 
 		require.NoError(t, filter.SetRangeEndBlockByHash(blockchain.EventFilterFrom,
 			utils.HexToFelt(t, "0x3b43b334f46b921938854ba85ffc890c1b1321f8fd69e7b2961b18b4260de14")))
-		require.NoError(t, filter.SetRangeEndBlockByHash(blockchain.EventFilterTo,
-			utils.HexToFelt(t, "0x3b43b334f46b921938854ba85ffc890c1b1321f8fd69e7b2961b18b4260de14")))
+		require.NoError(t, filter.SetRangeEndBlockByNumber(blockchain.EventFilterTo, 8))
 
 		t.Run("get all events without pagination", func(t *testing.T) {
 			events, cToken, err := filter.Events(nil, 10)
