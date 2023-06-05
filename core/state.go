@@ -212,22 +212,20 @@ func (s *State) Update(blockNumber uint64, update *StateUpdate, declaredClasses 
 		return err
 	}
 
-	// register declared classes mentioned in stateDiff.deployedContracts and stateDiff.declaredClasses
-	// Todo: add test cases for retrieving Classes when State struct is extended to return Classes.
-	for classHash, class := range declaredClasses {
-		if err = s.putClass(&classHash, class, blockNumber); err != nil {
-			return err
-		}
-	}
-
 	if err = s.updateDeclaredClasses(update.StateDiff.DeclaredV1Classes, false); err != nil {
 		return err
 	}
 
 	// register deployed contracts
+	stateTrie, storageCloser, err := s.storage()
+	if err != nil {
+		return err
+	}
+	// todo return storageCloser err explicitly
+	defer storageCloser()
+
 	for _, contract := range update.StateDiff.DeployedContracts {
-		// todo fix after rebase
-		if err = s.putNewContract(nil, contract.Address, contract.ClassHash, blockNumber); err != nil {
+		if err = s.putNewContract(stateTrie, contract.Address, contract.ClassHash, blockNumber); err != nil {
 			return err
 		}
 	}
@@ -325,6 +323,7 @@ type DeclaredClass struct {
 	Class Class
 }
 
+//nolint:unused
 func (s *State) putClass(classHash *felt.Felt, class Class, declaredAt uint64) error {
 	classKey := db.Class.Key(classHash.Marshal())
 
