@@ -102,15 +102,14 @@ type Contract struct {
 // assumes storage is cleared in revert process
 func (c *Contract) Purge() error {
 	addrBytes := c.Address.Marshal()
-	if err := c.txn.Delete(db.ContractNonce.Key(addrBytes)); err != nil {
-		return err
+	buckets := []db.Bucket{db.ContractNonce, db.ContractRootKey, db.ContractClassHash}
+
+	for _, bucket := range buckets {
+		if err := c.txn.Delete(bucket.Key(addrBytes)); err != nil {
+			return err
+		}
 	}
-	if err := c.txn.Delete(db.ContractRootKey.Key(addrBytes)); err != nil {
-		return err
-	}
-	if err := c.txn.Delete(db.ContractClassHash.Key(addrBytes)); err != nil {
-		return err
-	}
+
 	return nil
 }
 
