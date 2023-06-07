@@ -42,4 +42,3 @@ jobs:
                 port=$((port+1))
                 nohup sh -c "docker logs -f juno_$network > /var/log/juno_logs_$network.log" &>/dev/null &
             done
-            
