@@ -5,13 +5,15 @@ on:
     branches:
       - main
   release:
-    types:
-      - created
+    types: [created]
 
 jobs:
   upgrade_nodes_on_test_env:
     runs-on: ubuntu-latest
     steps:
+    - name: Define docker image tag
+      run: echo "DOCKER_IMAGE_TAG=${{ github.actor }}-${{ github.sha }}" >> $GITHUB_ENV
+
     - name: Trigger build_and_push_docker_image
       id: trigger-build
       uses: benc-uk/workflow-dispatch@v1
@@ -19,7 +21,7 @@ jobs:
         workflow: Build and publish Docker image
         token: ${{ secrets.REPOSITORY_DISPATCH_TOKEN }}
         ref: ${{ github.ref }}
-        inputs: '{"tag": "${{ github.actor }}-${{ github.sha }}"}'
+        inputs: '{"tag": "${{ env.DOCKER_IMAGE_TAG }}"}'
 
     - name: Wait for build_and_push_docker_image workflow to complete
       uses: fountainhead/action-wait-for-check@v1.1.0
@@ -30,16 +32,30 @@ jobs:
         intervalSeconds: 60
         timeoutSeconds: 1500
 
-    - name: Trigger upgrade juno nodes workflow when image is pushed with success
+    - name: Remove old Juno containers and start new ones
       if: steps.wait-for-build.outputs.conclusion == 'success'
-      uses: benc-uk/workflow-dispatch@v1
+      uses: appleboy/ssh-action@v0.1.8
+      env:
+        DOCKER_IMAGE: ${{ env.DOCKER_IMAGE_TAG }}
+        HOST: ${{ github.event_name == 'push' && secrets.STAGING_IP || github.event_name == 'release' && secrets.RELEASE_IP }}
       with:
-        workflow: upgrade juno nodes
-        repo: NethermindEth/juno-smoke-tests
-        token: ${{ secrets.REPOSITORY_DISPATCH_TOKEN }}
-        inputs: >
-          {
-            "container_tag": "${{ github.actor }}-${{ github.sha }}",
-            "environment": "${{ github.event_name == 'push' && 'staging' || github.event_name == 'release' && 'release' }}"
-          }
-        ref: main
+        host: ${{ env.HOST }}
+        username: root
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        envs: DOCKER_IMAGE
+        script: |
+            port=6060
+            for network in mainnet goerli goerli2; do
+                docker stop juno_$network
+                docker rm juno_$network
+                docker run -d \
+                    --name juno_$network \
+                    -p $port:6060 \
+                    -v /root/juno_$network:/var/lib/juno \
+                    nethermindeth/juno:$DOCKER_IMAGE \
+                    --db-path /var/lib/juno \
+                    --rpc-port 6060 \
+                    --network $network
+            nohup sh -c 'docker logs -f juno_'$network' 2>&1 | sed -u "s/\x1b\[[0-9;]*m//g" > /var/log/juno_logs_'$network'.log' &>/dev/null &
+            port=$((port+1))
+            done
