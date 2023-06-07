@@ -12,18 +12,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Define docker image tag
-      run: echo "DOCKER_IMAGE_TAG=latest" >> $GITHUB_ENV
+      run: echo "DOCKER_IMAGE_TAG=omerfirmak-5670d77fe656667141be980916f908db17c832a8" >> $GITHUB_ENV
 
     - name: Remove old Juno containers and start new ones
-      if: steps.wait-for-build.outputs.conclusion == 'success'
       uses: appleboy/ssh-action@v0.1.8
       env:
         DOCKER_IMAGE: ${{ env.DOCKER_IMAGE_TAG }}
         HOST: ${{ github.event_name == 'push' && secrets.STAGING_IP || github.event_name == 'release' && secrets.RELEASE_IP }}
       with:
         host: ${{ env.HOST }}
-        username: root
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        username: ${{ secrets.VM_USERNAME }}
+        password: ${{ secrets.VM_PASSWORD }}
         envs: DOCKER_IMAGE
         script: |
             port=6060
@@ -37,8 +36,10 @@ jobs:
                     nethermindeth/juno:$DOCKER_IMAGE \
                     --db-path /var/lib/juno \
                     --rpc-port 6060 \
-                    --network $network
-            nohup sh -c 'docker logs -f juno_'$network' 2>&1 | sed -u "s/\x1b\[[0-9;]*m//g" > /var/log/juno_logs_'$network'.log' &>/dev/null &
-            port=$((port+1))
+                    --network $network \
+                    --colour=false \
+                    $(if [ "$network" = "mainnet" ]; then echo "--pprof"; fi)
+                port=$((port+1))
+                nohup sh -c "docker logs -f juno_$network > /var/log/juno_logs_$network.log" &>/dev/null &
             done
             
