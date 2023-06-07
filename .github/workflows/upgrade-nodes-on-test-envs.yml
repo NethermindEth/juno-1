@@ -12,25 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Define docker image tag
-      run: echo "DOCKER_IMAGE_TAG=${{ github.actor }}-${{ github.sha }}" >> $GITHUB_ENV
-
-    - name: Trigger build_and_push_docker_image
-      id: trigger-build
-      uses: benc-uk/workflow-dispatch@v1
-      with:
-        workflow: Build and publish Docker image
-        token: ${{ secrets.REPOSITORY_DISPATCH_TOKEN }}
-        ref: ${{ github.ref }}
-        inputs: '{"tag": "${{ env.DOCKER_IMAGE_TAG }}"}'
-
-    - name: Wait for build_and_push_docker_image workflow to complete
-      uses: fountainhead/action-wait-for-check@v1.1.0
-      id: wait-for-build
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        checkName: build_and_push_docker_image
-        intervalSeconds: 60
-        timeoutSeconds: 1500
+      run: echo "DOCKER_IMAGE_TAG=latest" >> $GITHUB_ENV
 
     - name: Remove old Juno containers and start new ones
       if: steps.wait-for-build.outputs.conclusion == 'success'
