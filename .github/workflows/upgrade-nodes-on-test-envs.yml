@@ -59,3 +59,4 @@ jobs:
             nohup sh -c 'docker logs -f juno_'$network' 2>&1 | sed -u "s/\x1b\[[0-9;]*m//g" > /var/log/juno_logs_'$network'.log' &>/dev/null &
             port=$((port+1))
             done
+            
